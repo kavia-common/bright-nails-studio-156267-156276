@@ -2,25 +2,22 @@
 
 Status: PARTIAL (awaiting environment variables)
 
-We attempted to connect to Supabase to validate and provision the database via tooling:
+This document captures the Supabase backend configuration for bookings and authentication, the required environment variables, and the exact SQL to provision tables and policies. It also includes the required steps to verify and apply schema using Supabase tools.
 
-- SupabaseTool_list_tables: FAILED (Invalid URL). This indicates Supabase environment variables are not set for this environment.
-- As soon as the environment variables are present, we will:
-  1) List existing tables
-  2) Create missing tables (bookings)
-  3) Apply RLS policies and helper RPCs
-  4) Re-document as COMPLETE
-
-Follow the steps below to complete configuration.
+Latest attempt (this run):
+- SupabaseTool_list_tables: FAILED (Invalid URL). The Supabase client could not be created because environment variables are not configured in this environment.
+- Root cause: REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY are not present (container_env is empty/None). Without these, tools cannot connect to your Supabase project.
+- Next action: Provide environment variables, then re-run the tools in the order below.
 
 ---
 
-1) Required Environment Variables (CRA)
-Create a .env file in nail_art_frontend/ with the following keys:
+1) Required Environment Variables (Create React App)
+Create nail_art_frontend/.env with:
 
 - REACT_APP_SUPABASE_URL=<your-supabase-project-url>
 - REACT_APP_SUPABASE_ANON_KEY=<your-anon-key>
 - REACT_APP_SITE_URL=<your-site-url>  (e.g., http://localhost:3000 for local dev)
+- (Optional) REACT_APP_INSTAGRAM_USERNAME=<your_instagram_handle>
 
 Notes:
 - For create-react-app, all runtime env vars must start with REACT_APP_.
@@ -29,17 +26,17 @@ Notes:
 ---
 
 2) Supabase Auth configuration (Dashboard)
-- Go to Authentication > URL Configuration
-  - Site URL: set to your production domain or http://localhost:3000 during development
+- Authentication > URL Configuration
+  - Site URL: your production domain or http://localhost:3000 during development
   - Additional Redirect URLs:
     * http://localhost:3000/**
     * https://your-production-domain.com/**
-- (Optional) Update Email Templates to use SiteURL and RedirectTo variables.
+- (Optional) Update Email Templates and use SiteURL/RedirectTo variables.
 
 ---
 
 3) Planned Database Schema (idempotent)
-We recommend creating a bookings table to record appointment requests. The UI can read time slot availability via a safe RPC that only exposes day and slot (no PII).
+We create a bookings table to record appointment requests. The UI reads time slot availability via a SECURITY DEFINER RPC that only exposes day and slot (no PII).
 
 Tables
 - public.bookings
@@ -65,8 +62,8 @@ RLS
 
 ---
 
-4) SQL to provision schema and policies
-Use Supabase SQL Editor or the SupabaseTool_run_sql step after env vars are set.
+4) SQL to provision schema and policies (idempotent)
+Use Supabase SQL Editor or SupabaseTool_run_sql after env vars are set.
 
 -- extensions (if needed)
 create extension if not exists pgcrypto;
@@ -119,34 +116,77 @@ grant execute on function public.get_booked_slots(date, date) to anon, authentic
 
 ---
 
-5) Frontend integration overview (React / CRA)
-- Use environment variables for Supabase URL/Key (never hardcode)
-- Use a dynamic getURL() helper for auth redirects
-- Use emailRedirectTo/redirectTo with getURL() in auth flows
-- Provide an AuthCallback component for handling Supabase auth redirects
+5) Required Tool Usage (sequence to run after env vars are set)
+Run these in order:
 
-Files prepared in src/ (scaffold; not imported to avoid build errors until deps are installed):
-- utils/getURL.js: returns an environment-aware site URL
-- utils/auth.js: shared auth error handler
-- utils/supabaseClient.js: Supabase client (requires @supabase/supabase-js)
-- utils/authClient.js: signUp/reset/magic link/OAuth helpers (use getURL redirects)
-- components/AuthCallback.jsx: callback handler (loads client at runtime)
+1. SupabaseTool_list_tables
+   - Purpose: Validate connectivity and see if 'bookings' already exists.
+2. SupabaseTool_create_table
+   - table_name: "bookings"
+   - columns:
+     - { name: "id", type: "uuid", default: "gen_random_uuid()" }
+     - { name: "created_at", type: "timestamptz", default: "now()" }
+     - { name: "name", type: "text" }
+     - { name: "email", type: "text" }
+     - { name: "service", type: "text" }
+     - { name: "day", type: "date" }
+     - { name: "slot", type: "text" }
+     - { name: "notes", type: "text" }
+     - { name: "status", type: "text", default: "'pending'" }
+     - { name: "user_id", type: "uuid" }
+   - Note: FK to auth.users for user_id can be added via SQL (see above).
+3. SupabaseTool_run_sql
+   - Apply: extension, unique index, RLS policies, RPC (the SQL in section 4).
+4. Document results
+   - Update this file with “Status: COMPLETE”, list created objects, and any policy notes.
 
-IMPORTANT: @supabase/supabase-js must be installed after env vars are provided:
+If any step fails:
+- Re-check env values and that the URL/Key are copied from Supabase Project Settings > API.
+- Ensure the URL in SupabaseTools configuration matches your project URL (not storage URL).
+
+---
+
+6) Frontend integration overview (React / CRA)
+- Never hardcode URLs; use environment variables for Supabase URL/Key.
+- Use a dynamic getURL() helper for auth redirects.
+- Use emailRedirectTo/redirectTo with getURL() in auth flows.
+- Provide an AuthCallback component for handling Supabase auth redirects.
+
+Files prepared in src/:
+- utils/getURL.js: returns an environment-aware site URL (used for auth redirects).
+- utils/auth.js: shared auth error handler.
+- utils/supabaseClient.js: Supabase client (requires @supabase/supabase-js).
+- utils/authClient.js: signUp/reset/magic link/OAuth helpers (use getURL redirects).
+- components/AuthCallback.jsx: callback handler (loads client dynamically on demand).
+
+Install the client library after env vars are provided:
 npm i @supabase/supabase-js
 
 ---
 
-6) Next steps (what we will do next after env provided)
-- Re-run SupabaseTool_list_tables to validate the schema
-- Apply the SQL above with SupabaseTool_run_sql (idempotent)
-- Wire BookingForm to fetch availability using RPC get_booked_slots, while keeping localStorage fallback
-- Add optional sign-up/login flows if needed
+7) End-to-end validation checklist (after env + SQL applied)
+Backend:
+- Re-run SupabaseTool_list_tables to confirm 'bookings' exists.
+- SupabaseTool_run_sql with "select count(*) from public.bookings;" to verify access.
+- SupabaseTool_run_sql: "select * from public.get_booked_slots(current_date, current_date + 7);" should return rows or empty set.
+
+Frontend:
+- npm i @supabase/supabase-js
+- Start dev: npm start
+- Navigate to /auth/callback after a sign-in or magic link flow; ensure AuthCallback processes sessions.
+- Update BookingForm later to fetch availability using public.get_booked_slots (keep localStorage as a fallback until confirmed).
 
 ---
 
-7) Troubleshooting
-- If "Invalid URL" or failed connection appears in tools, confirm:
-  - REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY are set
-  - Project URL copied from Supabase API settings (not storage or other)
-- If auth redirect fails, verify Authentication > URL Configuration in Supabase dashboard.
+8) Troubleshooting
+- "Invalid URL" or failed connection in tools:
+  - Ensure REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY are set in .env.
+  - Confirm the URL is from Project Settings > API (the top "Project URL").
+- Auth redirect failures:
+  - Verify Authentication > URL Configuration in Supabase dashboard.
+  - Make sure all auth helpers use getURL() for dynamic redirects.
+
+---
+History:
+- Attempt 1: Tools failed (Invalid URL) – env vars not present.
+- Attempt 2 (this run): Same failure; documented steps, provided .env.example, ready to re-run once envs are set.
