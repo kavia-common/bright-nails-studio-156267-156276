@@ -4,13 +4,17 @@ Status: PARTIAL (awaiting environment variables; tooling could not connect)
 
 This document captures the Supabase backend configuration for the bookings system, including the schema, row-level security (RLS) policies, and how to complete setup. It also records tool run status for traceability.
 
-Latest attempt (this run):
-- SupabaseTool_list_tables: FAILED with PGRST202 (public.run_sql not found). Likely due to missing project configuration/URL in this environment.
+Latest verification attempt (this run):
+- Goal: Inspect bookings table structure and RLS, confirm anon insert and admin select/update for approve/reject workflow.
+- SupabaseTool_list_tables: FAILED with PGRST202 (public.run_sql not found).
 - SupabaseTool_create_table: FAILED with PGRST202 (public.run_sql not found).
 - SupabaseTool_run_sql: FAILED with PGRST202 (public.run_sql not found).
 - Root cause: Environment variables are not present (container_env = None). Without REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY, the SupabaseTools cannot connect to your project.
 
-Next action: Provide environment variables, then re-run the tools in order (see “How to apply using tools” below). You can also run the SQL in the Supabase Dashboard SQL Editor.
+Conclusion for this verification attempt:
+- bookings table: Unknown (not verifiable in this run)
+- RLS policies: Unknown (not verifiable in this run)
+- Required action: Provide environment variables, then re-run the tools to auto-provision and verify.
 
 ---
 
@@ -37,10 +41,10 @@ Notes:
 
 ---
 
-3) Bookings schema (requested)
+3) Target Bookings Schema (expected)
 Table: public.bookings
 
-Columns:
+Columns (required):
 - id: uuid primary key default gen_random_uuid()
 - name: text
 - email: text
@@ -52,23 +56,21 @@ Columns:
 - created_at: timestamptz not null default now()
 - admin_notes: text
 
-RLS policy (requested):
-- Allow anonymous insert; only admin can view and update status. Block updates/deletes from anon users.
-Implementation approach:
-- Enable RLS on bookings.
-- Define an admins table (public.admins) that references auth.users(id).
-- Policies:
-  - to anon: INSERT allowed (for public booking submissions).
-  - to authenticated: SELECT/UPDATE/DELETE only when the user is in public.admins.
-- Optional: a SECURITY DEFINER function to set status with guard checks.
+RLS policies (expected):
+- Enable RLS on public.bookings.
+- Allow anonymous INSERT (for public booking submissions).
+- Restrict SELECT/UPDATE/DELETE to "admins" only.
+
+Admin model:
+- public.admins table with user_id uuid primary key referencing auth.users(id).
+- Policies use exists (select 1 from public.admins a where a.user_id = auth.uid()).
 
 Recommended indexes:
 - idx_bookings_requested_time on requested_time (desc)
 - idx_bookings_status on status
 
 Optional unique constraint (prevent double bookings for a given requested_time):
-- unique index on requested_time if you only allow one appointment per exact timestamp
-  (or change to a time-slot model and unique(day, slot)).
+- unique on requested_time (or model timeslots differently and unique(day, slot)).
 
 ---
 
@@ -160,7 +162,49 @@ grant execute on function public.set_booking_status(uuid, text, text) to authent
 
 ---
 
-5) Assigning admin access
+5) Verification checklist (what to check after env is set)
+Use these queries in the SQL Editor or SupabaseTools:
+
+Schema checks:
+- select column_name, data_type, is_nullable, column_default
+  from information_schema.columns
+  where table_schema='public' and table_name='bookings'
+  order by ordinal_position;
+
+- Expected columns: id(uuid default gen_random_uuid()), name(text), email(text), mobile(text),
+  requested_time(timestamptz not null), service_type(text), notes(text), status(text default 'pending'),
+  created_at(timestamptz default now()), admin_notes(text).
+
+RLS checks:
+- select schemaname, tablename, policyname, roles, cmd, qual, with_check
+  from pg_policies
+  where tablename='bookings';
+
+- Ensure:
+  - "anon can insert bookings" exists with cmd=INSERT and role=anon, with_check=(true)
+  - "admin can select bookings" exists with cmd=SELECT and role=authenticated using admin membership
+  - "admin can update bookings" exists for UPDATE with using/with_check enforcing admin membership
+  - (Optional) "admin can delete bookings" exists for DELETE
+
+Enablement:
+- select relrowsecurity, relforcerowsecurity from pg_class where relname='bookings';
+  - relrowsecurity should be true.
+
+Functional test (as admin):
+- Insert a row (as anon or via SQL) and then:
+  select public.set_booking_status('<booking_uuid>', 'approved', 'See you soon!');
+
+Access control test:
+- As anon: insert into public.bookings (name, email, mobile, requested_time, service_type, notes)
+  values ('Test User','test@example.com','555-000-0000', now() + interval '1 day', 'Mini Mani', 'N/A');
+  - Expect: success.
+- As anon: select * from public.bookings; 
+  - Expect: denied by RLS.
+- As admin (authenticated user in public.admins): select/update should succeed.
+
+---
+
+6) Assigning admin access
 Option A (recommended):
 - Have the staff user sign up/sign in via your app.
 - In Supabase SQL Editor, add them to public.admins with their auth.users.id:
@@ -172,39 +216,6 @@ select id, email from auth.users order by created_at desc limit 10;
 
 Option B:
 - Use Supabase Dashboard Policies and Groups (if using organizations/teams) to gate with group membership instead of public.admins. Adjust policies accordingly.
-
----
-
-6) How to apply using tools (after env vars are set)
-Run these in order:
-
-1. SupabaseTool_list_tables
-   - Purpose: Validate connectivity and see if 'bookings' exists.
-
-2. SupabaseTool_create_table
-   - table_name: "bookings"
-   - columns:
-     - { name: "id", type: "uuid", default: "gen_random_uuid()" }
-     - { name: "name", type: "text" }
-     - { name: "email", type: "text" }
-     - { name: "mobile", type: "text" }
-     - { name: "requested_time", type: "timestamptz" }
-     - { name: "service_type", type: "text" }
-     - { name: "notes", type: "text" }
-     - { name: "status", type: "text", default: "'pending'" }
-     - { name: "created_at", type: "timestamptz", default: "now()" }
-     - { name: "admin_notes", type: "text" }
-
-3. SupabaseTool_run_sql
-   - Apply: extensions, public.admins table, RLS policies, indexes, and optional set_booking_status function (the SQL above).
-
-4. Document results
-   - Update this file with “Status: COMPLETE”, list created objects, and any policy notes.
-
-Validation queries:
-- select count(*) from public.bookings;
-- select * from public.bookings limit 1; (should only work for admins)
-- call function as admin: select public.set_booking_status('<booking_uuid>', 'approved', 'See you soon!');
 
 ---
 
@@ -258,6 +269,7 @@ Edge Functions telemetry and secret management are typically simpler for SMS.
 
 History:
 - Attempt 1: Tools failed (Invalid URL) – env vars not present.
-- Attempt 2 (this run): Tools failed with PGRST202 – environment still not configured; documented exact schema and policies ready to apply.
+- Attempt 2: Tools failed with PGRST202 – environment still not configured; documented exact schema and policies ready to apply.
+- Attempt 3 (this run): Verification requested; tools failed again with PGRST202 due to missing env vars. Documented expected schema, policies, and a verification checklist.
 
-Once environment variables are set, re-run the tools to provision the table and policies automatically, or paste the SQL above into the Supabase SQL Editor.
+Once environment variables are set, re-run the tools to provision/verify the table and policies automatically, or paste the SQL above into the Supabase SQL Editor.
