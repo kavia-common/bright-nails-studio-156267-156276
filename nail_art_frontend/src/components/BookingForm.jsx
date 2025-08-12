@@ -1,18 +1,29 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import supabase from '../utils/supabaseClient';
 
 const DEFAULT_SLOTS = ['10:00 AM', '11:30 AM', '1:00 PM', '2:30 PM', '4:00 PM'];
 
 /**
  * PUBLIC_INTERFACE
- * Appointment booking form with simple slot management and local persistence.
+ * Appointment booking form with Supabase submission.
+ * - Collects name, email, mobile, service, day, time slot, and notes.
+ * - On submit, inserts a row into public.bookings using the anon key (no auth required).
+ * - Shows user-friendly success or error messages.
+ * - Maintains a local "booked" map to reflect taken slots in the UI immediately.
  */
 export default function BookingForm() {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [notes, setNotes] = useState('');
   const [service, setService] = useState('Mini Mani');
   const [day, setDay] = useState('');
   const [selectedSlot, setSelectedSlot] = useState('');
   const [booked, setBooked] = useState({}); // { 'YYYY-MM-DD': ['10:00 AM'] }
-  const [message, setMessage] = useState('');
+
+  const [loading, setLoading] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   // generate next 7 days
   const days = useMemo(() => {
@@ -25,7 +36,10 @@ export default function BookingForm() {
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
       const id = `${yyyy}-${mm}-${dd}`;
-      arr.push({ id, label: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) });
+      arr.push({
+        id,
+        label: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      });
     }
     return arr;
   }, []);
@@ -41,7 +55,7 @@ export default function BookingForm() {
 
   const slotsForDay = useMemo(() => {
     const taken = new Set(booked[day] || []);
-    return DEFAULT_SLOTS.map(s => ({
+    return DEFAULT_SLOTS.map((s) => ({
       label: s,
       available: !taken.has(s),
     }));
@@ -49,26 +63,119 @@ export default function BookingForm() {
 
   const reset = () => {
     setName('');
+    setEmail('');
+    setMobile('');
+    setNotes('');
     setService('Mini Mani');
     setDay('');
     setSelectedSlot('');
-    setMessage('');
   };
 
-  const submit = (e) => {
+  const to24h = (label) => {
+    // Convert '1:00 PM' to { hour: 13, minute: 0 }
+    if (!label) return null;
+    const match = label.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!match) return null;
+    const [, h, m, meridiem] = match;
+    let hour = parseInt(h, 10);
+    const minute = parseInt(m, 10);
+    meridiem = meridiem.toUpperCase();
+    if (meridiem === 'PM' && hour !== 12) hour += 12;
+    if (meridiem === 'AM' && hour === 12) hour = 0;
+    return { hour, minute };
+  };
+
+  const getRequestedDate = () => {
+    // Build a Date using local time from 'YYYY-MM-DD' and selectedSlot
+    if (!day || !selectedSlot) return null;
+    const [yyyy, mm, dd] = day.split('-').map((x) => parseInt(x, 10));
+    const hm = to24h(selectedSlot);
+    if (!hm) return null;
+    // Use local time; toISOString() will convert to UTC for storage in timestamptz
+    return new Date(yyyy, mm - 1, dd, hm.hour, hm.minute, 0, 0);
+  };
+
+  const formatForMessage = (dt) => {
+    try {
+      return dt.toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    } catch {
+      return `${day} ${selectedSlot}`;
+    }
+  };
+
+  const submit = async (e) => {
     e.preventDefault();
-    if (!name || !service || !day || !selectedSlot) {
-      setMessage('Please fill out your name, pick a day, and select a time slot.');
+    setSuccessMsg('');
+    setErrorMsg('');
+
+    if (!name || !email || !mobile || !service || !day || !selectedSlot) {
+      setErrorMsg('Please fill out your name, email, mobile, pick a day, and select a time slot.');
       return;
     }
-    setBooked(prev => {
-      const daySet = new Set(prev[day] || []);
-      daySet.add(selectedSlot);
-      return { ...prev, [day]: Array.from(daySet) };
-    });
-    setMessage(`Thanks ${name}! Your request for ${service} on ${day} at ${selectedSlot} was received. We'll confirm shortly.`);
-    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 200);
-    reset();
+
+    const requestedAt = getRequestedDate();
+    if (!requestedAt || isNaN(requestedAt.getTime())) {
+      setErrorMsg('Please select a valid date and time.');
+      return;
+    }
+
+    if (!supabase) {
+      setErrorMsg(
+        'Booking system is not configured yet. Please try again later. (Missing Supabase URL or anon key)'
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const payload = {
+        name,
+        email,
+        mobile,
+        requested_time: requestedAt.toISOString(),
+        service_type: service,
+        notes,
+        // status will default to 'pending' on the server if the schema matches the provided SQL
+      };
+
+      const { data, error } = await supabase.from('bookings').insert(payload).select().maybeSingle();
+
+      if (error) {
+        // Handle a duplicate timeslot or RLS error gracefully
+        const msg =
+          error.message?.toLowerCase().includes('policy') ||
+          error.message?.toLowerCase().includes('rls')
+            ? 'Your booking could not be created due to access restrictions. Please contact us.'
+            : error.message || 'Unable to create your booking at this time.';
+        setErrorMsg(msg);
+        return;
+      }
+
+      // Optimistically mark slot as taken locally for this device
+      setBooked((prev) => {
+        const daySet = new Set(prev[day] || []);
+        daySet.add(selectedSlot);
+        return { ...prev, [day]: Array.from(daySet) };
+      });
+
+      const whenStr = formatForMessage(requestedAt);
+      const refId = data?.id ? ` Reference: ${String(data.id).slice(0, 8)}…` : '';
+      setSuccessMsg(
+        `Thanks ${name}! Your request for ${service} on ${whenStr} was received. We'll confirm shortly.${refId}`
+      );
+      setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 200);
+      reset();
+    } catch (err) {
+      setErrorMsg(err?.message || 'Something went wrong while sending your request.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -76,11 +183,49 @@ export default function BookingForm() {
       <form onSubmit={submit} className="card" aria-label="Booking form">
         <div className="form-field">
           <label htmlFor="bf_name">Your name</label>
-          <input id="bf_name" className="input" value={name} onChange={e => setName(e.target.value)} placeholder="Taylor Swift" />
+          <input
+            id="bf_name"
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Taylor Swift"
+            required
+          />
         </div>
+
+        <div className="form-field">
+          <label htmlFor="bf_email">Email</label>
+          <input
+            id="bf_email"
+            className="input"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+          />
+        </div>
+
+        <div className="form-field">
+          <label htmlFor="bf_mobile">Mobile</label>
+          <input
+            id="bf_mobile"
+            className="input"
+            type="tel"
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+            placeholder="(555) 123-4567"
+            required
+          />
+        </div>
+
         <div className="form-field">
           <label htmlFor="bf_service">Service</label>
-          <select id="bf_service" value={service} onChange={e => setService(e.target.value)}>
+          <select
+            id="bf_service"
+            value={service}
+            onChange={(e) => setService(e.target.value)}
+          >
             <option>Mini Mani</option>
             <option>Glitter Glam</option>
             <option>Character Cuties</option>
@@ -89,22 +234,29 @@ export default function BookingForm() {
             <option>Bestie Set</option>
           </select>
         </div>
+
         <div className="form-field">
           <label htmlFor="bf_day">Day</label>
-          <select id="bf_day" value={day} onChange={e => setDay(e.target.value)}>
+          <select id="bf_day" value={day} onChange={(e) => setDay(e.target.value)}>
             <option value="">Pick a day</option>
-            {days.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+            {days.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.label}
+              </option>
+            ))}
           </select>
         </div>
 
         <div className="form-field">
           <label>Available slots</label>
           <div className="slots" role="listbox" aria-label="Available time slots">
-            {slotsForDay.map(s => (
+            {slotsForDay.map((s) => (
               <button
                 type="button"
                 key={s.label}
-                className={`slot ${selectedSlot === s.label ? 'selected' : ''} ${s.available ? '' : 'unavailable'}`}
+                className={`slot ${selectedSlot === s.label ? 'selected' : ''} ${
+                  s.available ? '' : 'unavailable'
+                }`}
                 onClick={() => s.available && setSelectedSlot(s.label)}
                 disabled={!s.available}
                 aria-pressed={selectedSlot === s.label}
@@ -116,9 +268,32 @@ export default function BookingForm() {
         </div>
 
         <div className="form-field">
-          <button className="btn btn-primary" type="submit">Request Booking</button>
+          <label htmlFor="bf_notes">Notes (optional)</label>
+          <textarea
+            id="bf_notes"
+            rows={4}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any preferences or details you'd like to share?"
+          />
         </div>
-        {message && <p aria-live="polite">{message}</p>}
+
+        <div className="form-field">
+          <button className="btn btn-primary" type="submit" disabled={loading}>
+            {loading ? 'Sending…' : 'Request Booking'}
+          </button>
+        </div>
+
+        {successMsg && (
+          <p aria-live="polite" style={{ color: 'green', fontWeight: 700 }}>
+            {successMsg}
+          </p>
+        )}
+        {errorMsg && (
+          <p aria-live="assertive" style={{ color: 'crimson', fontWeight: 700 }}>
+            {errorMsg}
+          </p>
+        )}
       </form>
 
       <aside className="card">
