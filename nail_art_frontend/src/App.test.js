@@ -1,8 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders site brand', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const brand = screen.getByText(/Bright Nails Studio/i);
+  expect(brand).toBeInTheDocument();
+});
+
+test('renders booking section title', () => {
+  render(<App />);
+  const bookingTitle = screen.getByText(/Book an Appointment/i);
+  expect(bookingTitle).toBeInTheDocument();
 });
