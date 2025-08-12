@@ -76,10 +76,10 @@ export default function BookingForm() {
     if (!label) return null;
     const match = label.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
     if (!match) return null;
-    const [, h, m, meridiem] = match;
+    const [, h, m, mer] = match;
     let hour = parseInt(h, 10);
     const minute = parseInt(m, 10);
-    meridiem = meridiem.toUpperCase();
+    const meridiem = String(mer).toUpperCase();
     if (meridiem === 'PM' && hour !== 12) hour += 12;
     if (meridiem === 'AM' && hour === 12) hour = 0;
     return { hour, minute };
