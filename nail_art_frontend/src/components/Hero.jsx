@@ -43,7 +43,7 @@ export default function Hero() {
           <img
             src={heroImg}
             className="hero-img"
-            alt="Playful, colorful nail art close-up from Bright Nails Studio"
+            alt="Playful, colorful nail art close-up from MVB Nails"
             loading="eager"
             decoding="async"
           />

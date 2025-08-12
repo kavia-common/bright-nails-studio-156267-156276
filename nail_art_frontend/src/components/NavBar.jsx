@@ -8,9 +8,9 @@ export default function NavBar({ onToggleTheme, theme }) {
   return (
     <nav className="navbar">
       <div className="container navbar-inner">
-        <a href="#top" className="brand" aria-label="Home - Bright Nails Studio">
+        <a href="#top" className="brand" aria-label="Home - MVB Nails">
           <span className="sparkle-dot" aria-hidden="true"></span>
-          Bright Nails Studio
+          MVB Nails
         </a>
         <div className="nav-links" role="navigation" aria-label="Primary">
           <a href="#about">About</a>

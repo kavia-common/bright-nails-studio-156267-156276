@@ -3,7 +3,7 @@ import App from './App';
 
 test('renders site brand', () => {
   render(<App />);
-  const brand = screen.getByText(/Bright Nails Studio/i);
+  const brand = screen.getByText(/MVB Nails/i);
   expect(brand).toBeInTheDocument();
 });
 
