@@ -27,6 +27,40 @@ Launches the test runner in interactive watch mode.
 Builds the app for production to the `build` folder.\
 It correctly bundles React in production mode and optimizes the build for the best performance.
 
+## Supabase Integration (IMPORTANT)
+
+Before enabling Supabase features, set environment variables and install the client library:
+
+1. Copy `.env.example` to `.env` and fill in values:
+   - `REACT_APP_SUPABASE_URL`
+   - `REACT_APP_SUPABASE_ANON_KEY`
+   - `REACT_APP_SITE_URL` (e.g., http://localhost:3000)
+
+2. In Supabase Dashboard:
+   - Authentication > URL Configuration:
+     - Site URL: your domain or http://localhost:3000
+     - Additional Redirect URLs:
+       * http://localhost:3000/**
+       * https://your-production-domain.com/**
+   - (Optional) Update Email Templates.
+
+3. Install the client:
+   ```
+   npm i @supabase/supabase-js
+   ```
+
+4. Files prepared (not yet imported until configured):
+   - `src/utils/getURL.js` – dynamic site URL helper
+   - `src/utils/supabaseClient.js` – Supabase client singleton
+   - `src/utils/authClient.js` – auth helpers (sign up, magic link, OAuth, reset)
+   - `src/utils/auth.js` – shared auth error handler
+   - `src/components/AuthCallback.jsx` – auth callback handler
+
+5. Database schema and RLS policies are documented in:
+   - `assets/supabase.md`
+
+After configuration, we will wire the booking flow to use the `get_booked_slots` RPC while keeping localStorage as a fallback.
+
 ## Customization
 
 ### Colors
