@@ -38,7 +38,7 @@ export default function App() {
         <Section id="about" title="About Me" subtitle="Meet the artist">
           <div className="about-grid">
             <div className="about-text">
-              <h3>Hi! I’m Bella, a 12-year-old nail artist</h3>
+              <h3>Hi! I’m Marlowe, a 12-year-old nail artist</h3>
               <p>
                 I love making nails that sparkle, pop, and feel truly you. I’ve practiced
                 for years on friends and family, and now I’m sharing my art with the world.
