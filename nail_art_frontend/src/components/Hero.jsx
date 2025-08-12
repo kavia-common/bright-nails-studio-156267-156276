@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import heroImg from '../assets/20250812_190229_Nail_Hero.png';
 
 /**
  * PUBLIC_INTERFACE
@@ -38,7 +39,15 @@ export default function Hero() {
             <a href="#services" className="btn btn-secondary">See Services</a>
           </div>
         </div>
-        <div className="hero-art" ref={artRef} aria-hidden="true" />
+        <figure className="hero-art" ref={artRef}>
+          <img
+            src={heroImg}
+            className="hero-img"
+            alt="Playful, colorful nail art close-up from Bright Nails Studio"
+            loading="eager"
+            decoding="async"
+          />
+        </figure>
       </div>
     </header>
   );
