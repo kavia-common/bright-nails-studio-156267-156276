@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import supabase from '../utils/supabaseClient';
 import { notifyNewBooking } from '../utils/emailApi';
 
@@ -25,6 +25,9 @@ export default function BookingForm() {
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Ref for success banner to ensure it's visible
+  const successRef = useRef(null);
 
   // generate next 7 days
   const days = useMemo(() => {
@@ -53,6 +56,24 @@ export default function BookingForm() {
   useEffect(() => {
     localStorage.setItem('bns_booked', JSON.stringify(booked));
   }, [booked]);
+
+  // Auto-dismiss success message after a few seconds and ensure visibility
+  useEffect(() => {
+    if (!successMsg) return;
+    const t = setTimeout(() => setSuccessMsg(''), 6000);
+    // Give DOM time to paint the banner then scroll it into view
+    const s = setTimeout(() => {
+      try {
+        successRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch {
+        /* no-op */
+      }
+    }, 200);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(s);
+    };
+  }, [successMsg]);
 
   const slotsForDay = useMemo(() => {
     const taken = new Set(booked[day] || []);
@@ -173,7 +194,6 @@ export default function BookingForm() {
       setSuccessMsg(
         `Thanks ${name}! Your request for ${service} on ${whenStr} was received. We'll confirm shortly.${refId}`
       );
-      setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 200);
       reset();
     } catch (err) {
       setErrorMsg(err?.message || 'Something went wrong while sending your request.');
@@ -183,131 +203,152 @@ export default function BookingForm() {
   };
 
   return (
-    <div className="booking">
-      <form onSubmit={submit} className="card" aria-label="Booking form">
-        <div className="form-field">
-          <label htmlFor="bf_name">Your name</label>
-          <input
-            id="bf_name"
-            className="input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Taylor Swift"
-            required
-          />
-        </div>
-
-        <div className="form-field">
-          <label htmlFor="bf_email">Email</label>
-          <input
-            id="bf_email"
-            className="input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-          />
-        </div>
-
-        <div className="form-field">
-          <label htmlFor="bf_mobile">Mobile</label>
-          <input
-            id="bf_mobile"
-            className="input"
-            type="tel"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
-            placeholder="(555) 123-4567"
-            required
-          />
-        </div>
-
-        <div className="form-field">
-          <label htmlFor="bf_service">Service</label>
-          <select
-            id="bf_service"
-            value={service}
-            onChange={(e) => setService(e.target.value)}
-          >
-            <option>Mini Mani</option>
-            <option>Glitter Glam</option>
-            <option>Character Cuties</option>
-            <option>Minimal Chic</option>
-            <option>Mix & Match</option>
-            <option>Bestie Set</option>
-          </select>
-        </div>
-
-        <div className="form-field">
-          <label htmlFor="bf_day">Day</label>
-          <select id="bf_day" value={day} onChange={(e) => setDay(e.target.value)}>
-            <option value="">Pick a day</option>
-            {days.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-field">
-          <label>Available slots</label>
-          <div className="slots" role="listbox" aria-label="Available time slots">
-            {slotsForDay.map((s) => (
-              <button
-                type="button"
-                key={s.label}
-                className={`slot ${selectedSlot === s.label ? 'selected' : ''} ${
-                  s.available ? '' : 'unavailable'
-                }`}
-                onClick={() => s.available && setSelectedSlot(s.label)}
-                disabled={!s.available}
-                aria-pressed={selectedSlot === s.label}
-              >
-                {s.label}
-              </button>
-            ))}
+    <>
+      <div className="booking">
+        <form onSubmit={submit} className="card" aria-label="Booking form">
+          <div className="form-field">
+            <label htmlFor="bf_name">Your name</label>
+            <input
+              id="bf_name"
+              className="input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Taylor Swift"
+              required
+            />
           </div>
-        </div>
 
-        <div className="form-field">
-          <label htmlFor="bf_notes">Notes (optional)</label>
-          <textarea
-            id="bf_notes"
-            rows={4}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Any preferences or details you'd like to share?"
-          />
-        </div>
+          <div className="form-field">
+            <label htmlFor="bf_email">Email</label>
+            <input
+              id="bf_email"
+              className="input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </div>
 
-        <div className="form-field">
-          <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? 'Sending…' : 'Request Booking'}
-          </button>
-        </div>
+          <div className="form-field">
+            <label htmlFor="bf_mobile">Mobile</label>
+            <input
+              id="bf_mobile"
+              className="input"
+              type="tel"
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+              placeholder="(555) 123-4567"
+              required
+            />
+          </div>
 
-        {successMsg && (
-          <p aria-live="polite" style={{ color: 'green', fontWeight: 700 }}>
-            {successMsg}
+          <div className="form-field">
+            <label htmlFor="bf_service">Service</label>
+            <select
+              id="bf_service"
+              value={service}
+              onChange={(e) => setService(e.target.value)}
+            >
+              <option>Mini Mani</option>
+              <option>Glitter Glam</option>
+              <option>Character Cuties</option>
+              <option>Minimal Chic</option>
+              <option>Mix & Match</option>
+              <option>Bestie Set</option>
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="bf_day">Day</label>
+            <select id="bf_day" value={day} onChange={(e) => setDay(e.target.value)}>
+              <option value="">Pick a day</option>
+              {days.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label>Available slots</label>
+            <div className="slots" role="listbox" aria-label="Available time slots">
+              {slotsForDay.map((s) => (
+                <button
+                  type="button"
+                  key={s.label}
+                  className={`slot ${selectedSlot === s.label ? 'selected' : ''} ${
+                    s.available ? '' : 'unavailable'
+                  }`}
+                  onClick={() => s.available && setSelectedSlot(s.label)}
+                  disabled={!s.available}
+                  aria-pressed={selectedSlot === s.label}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="bf_notes">Notes (optional)</label>
+            <textarea
+              id="bf_notes"
+              rows={4}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any preferences or details you'd like to share?"
+            />
+          </div>
+
+          <div className="form-field">
+            <button className="btn btn-primary" type="submit" disabled={loading}>
+              {loading ? 'Sending…' : 'Request Booking'}
+            </button>
+          </div>
+
+          {errorMsg && (
+            <p aria-live="assertive" style={{ color: 'crimson', fontWeight: 700 }}>
+              {errorMsg}
+            </p>
+          )}
+        </form>
+
+        <aside className="card">
+          <h3>Good to know</h3>
+          <ul>
+            <li>Please arrive with clean nails (no old polish if possible).</li>
+            <li>Design times vary from 30–75 minutes depending on detail.</li>
+            <li>Parents are welcome to stay during the appointment.</li>
+          </ul>
+        </aside>
+      </div>
+
+      {successMsg && (
+        <div
+          ref={successRef}
+          role="status"
+          aria-live="polite"
+          className="card"
+          style={{
+            marginTop: 12,
+            border: '1px solid #10b981',
+            background: '#d1fae5',
+            color: '#065f46',
+            fontWeight: 700,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span aria-hidden="true">✅</span>
+            <span>{successMsg}</span>
+          </div>
+          <p style={{ marginTop: 6, fontWeight: 600, color: '#065f46' }}>
+            We’ll email you once it’s approved — usually within a day. Thanks for booking!
           </p>
-        )}
-        {errorMsg && (
-          <p aria-live="assertive" style={{ color: 'crimson', fontWeight: 700 }}>
-            {errorMsg}
-          </p>
-        )}
-      </form>
-
-      <aside className="card">
-        <h3>Good to know</h3>
-        <ul>
-          <li>Please arrive with clean nails (no old polish if possible).</li>
-          <li>Design times vary from 30–75 minutes depending on detail.</li>
-          <li>Parents are welcome to stay during the appointment.</li>
-        </ul>
-      </aside>
-    </div>
+        </div>
+      )}
+    </>
   );
 }
