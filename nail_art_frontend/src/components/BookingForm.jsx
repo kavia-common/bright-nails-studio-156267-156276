@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import supabase from '../utils/supabaseClient';
+import { notifyNewBooking } from '../utils/emailApi';
 
 const DEFAULT_SLOTS = ['10:00 AM', '11:30 AM', '1:00 PM', '2:30 PM', '4:00 PM'];
 
@@ -156,6 +157,9 @@ export default function BookingForm() {
         setErrorMsg(msg);
         return;
       }
+
+      // Fire-and-forget admin email notification (non-blocking)
+      notifyNewBooking(payload).catch(() => { /* ignore errors in UI */ });
 
       // Optimistically mark slot as taken locally for this device
       setBooked((prev) => {

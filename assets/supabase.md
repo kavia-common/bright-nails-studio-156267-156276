@@ -236,22 +236,45 @@ npm i @supabase/supabase-js
 
 ---
 
-8) Notifications plan (SMS to admin; SMS to requester on approve/reject)
-Two suggested approaches:
+8) Notifications plan (Email via Gmail SMTP)
 
-A) Supabase Edge Functions (recommended)
-- Create an Edge Function that:
-  - Listens for database changes via Supabase Realtime or is invoked by your admin UI.
-  - Sends SMS via your provider (e.g., Twilio).
-- On INSERT into bookings: notify admin number(s).
-- On status change to approved/rejected: notify requester (via mobile) with appointment details.
+This repo includes a small Node server (nail_art_frontend/server/index.js) using Nodemailer to send emails via Gmail SMTP, without exposing credentials in the frontend.
 
-B) Postgres trigger + http extension (advanced)
-- Use the http extension to POST to your SMS provider’s API from a trigger function.
-- Store provider credentials in Vault/Secrets; restrict access.
-- Pros: fully server-side; Cons: secret handling and retry logic are more complex.
+What it does:
+- On new booking (created from the Booking form), the frontend calls POST /api/notify-new-booking to email the admin.
+- When an admin updates a booking status to approved/rejected in the Admin Dashboard, the frontend calls POST /api/notify-status-change to email the customer.
 
-Edge Functions telemetry and secret management are typically simpler for SMS.
+Security:
+- SMTP credentials are read only on the server from environment variables (NOT prefixed with REACT_APP_), so they are never shipped to the browser.
+
+Setup steps:
+1) Copy nail_art_frontend/.env.example to nail_art_frontend/.env and fill in:
+   - REACT_APP_SUPABASE_URL
+   - REACT_APP_SUPABASE_ANON_KEY
+   - REACT_APP_SITE_URL (e.g., http://localhost:3000)
+   - SMTP_HOST=smtp.gmail.com
+   - SMTP_PORT=465
+   - SMTP_USER=your_gmail_account@gmail.com
+   - SMTP_PASS=your_gmail_app_password  (use a Gmail App Password)
+   - ADMIN_EMAIL=your_gmail_account@gmail.com
+   - SITE_URL=http://localhost:3000
+   - PORT=4000
+
+2) Install dependencies:
+   npm i
+
+3) Run servers (in two terminals or using a process manager):
+   - Email server: npm run server  (listens on http://localhost:4000)
+   - Frontend:     npm start        (CRA dev server; proxied API calls to :4000)
+
+Notes:
+- In production, deploy the Node email server separately (e.g., Render, Railway, Fly.io, or your own VPS) and route /api/* to it (update BASE URL in src/utils/emailApi.js if not using the CRA dev proxy).
+- Never commit .env with real credentials.
+- If you prefer Supabase Edge Functions instead of a Node server, you can adapt this by using an email provider with an HTTP API (e.g., Resend, Mailgun) and store secrets with supabase secrets. Direct Gmail SMTP via Edge Functions is not supported via Nodemailer since Edge Functions run on Deno.
+
+Troubleshooting:
+- If emails aren’t sending: verify SMTP_USER/PASS and that you are using a Gmail App Password; check server logs.
+- If frontend can’t reach the server: ensure npm run server is running and that the CRA proxy is set to http://localhost:4000 in package.json.
 
 ---
 

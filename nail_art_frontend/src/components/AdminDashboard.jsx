@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import supabase from '../utils/supabaseClient';
 import { signInWithMagicLink, signInWithOAuth } from '../utils/authClient';
+import { notifyStatusChange } from '../utils/emailApi';
 
 /**
  * PUBLIC_INTERFACE
@@ -37,6 +38,7 @@ export default function AdminDashboard() {
         setChecking(false);
         return;
       }
+
       setSupabaseReady(true);
 
       try {
@@ -118,7 +120,8 @@ export default function AdminDashboard() {
   };
 
   // Try to update using direct UPDATE; if denied, fallback to RPC if available
-  const updateStatus = async (id, status) => {
+  const updateStatus = async (booking, newStatus) => {
+    const id = booking?.id;
     const notes = (noteEdits[id] || '').trim() || null;
     setActionBusyId(id);
     setErrorMsg('');
@@ -127,7 +130,7 @@ export default function AdminDashboard() {
       // First attempt: direct update
       let resp = await supabase
         .from('bookings')
-        .update({ status, admin_notes: notes })
+        .update({ status: newStatus, admin_notes: notes })
         .eq('id', id)
         .select()
         .maybeSingle();
@@ -138,7 +141,7 @@ export default function AdminDashboard() {
         if (msg.includes('permission') || msg.includes('rls') || msg.includes('policy')) {
           const rpcRes = await supabase.rpc('set_booking_status', {
             p_id: id,
-            p_status: status,
+            p_status: newStatus,
             p_admin_notes: notes,
           });
           if (rpcRes.error) {
@@ -152,6 +155,21 @@ export default function AdminDashboard() {
           setErrorMsg(resp.error.message || 'Update failed.');
           return;
         }
+      }
+
+      // Fire-and-forget: notify the customer via email about the status change.
+      try {
+        await notifyStatusChange({
+          id,
+          status: newStatus,
+          admin_notes: notes || booking?.admin_notes || null,
+          customer_email: booking?.email,
+          name: booking?.name,
+          requested_time: booking?.requested_time,
+          service_type: booking?.service_type,
+        });
+      } catch {
+        // swallow errors; UI should not be blocked by email issues
       }
 
       // Refresh local list
@@ -387,7 +405,7 @@ export default function AdminDashboard() {
               <button
                 className="btn btn-primary"
                 type="button"
-                onClick={() => updateStatus(b.id, 'approved')}
+                onClick={() => updateStatus(b, 'approved')}
                 disabled={actionBusyId === b.id}
                 aria-label="Approve booking"
               >
@@ -396,7 +414,7 @@ export default function AdminDashboard() {
               <button
                 className="btn btn-secondary"
                 type="button"
-                onClick={() => updateStatus(b.id, 'pending')}
+                onClick={() => updateStatus(b, 'pending')}
                 disabled={actionBusyId === b.id}
                 aria-label="Mark pending"
               >
@@ -406,7 +424,7 @@ export default function AdminDashboard() {
                 className="btn"
                 type="button"
                 style={{ background: '#fee2e2', color: '#7f1d1d' }}
-                onClick={() => updateStatus(b.id, 'rejected')}
+                onClick={() => updateStatus(b, 'rejected')}
                 disabled={actionBusyId === b.id}
                 aria-label="Reject booking"
               >
